@@ -10,8 +10,10 @@ LIBGPGERROR_VERSION=1.42
 LIBKSBA_VERSION=1.5.1
 NPTH_VERSION=1.6
 PINENTRY_VERSION=1.1.1
+EUDEV_VERSION=3.2.9
+LIBUSB_VERSION=1.0.24
 
-DESTDIR=
+DESTDIR="$PWD/gnupg"
 PREFIX="$PWD/gnupg"
 WORK="$PWD/work"
 PATH="$PWD/work/deps/bin:$PATH"
@@ -41,8 +43,10 @@ download() {
     mkdir -p download
     (
         cd download/
-        xargs -n1 curl -O <<EOF
+        xargs -n1 curl -OL <<EOF
 https://www.musl-libc.org/releases/musl-$MUSL_VERSION.tar.gz
+https://github.com/libusb/libusb/releases/download/v$LIBUSB_VERSION/libusb-$LIBUSB_VERSION.tar.bz2
+https://dev.gentoo.org/~blueness/eudev/eudev-$EUDEV_VERSION.tar.gz
 $gnupgweb/gnupg/gnupg-$GNUPG_VERSION.tar.bz2
 $gnupgweb/libassuan/libassuan-$LIBASSUAN_VERSION.tar.bz2
 $gnupgweb/libgcrypt/libgcrypt-$LIBGCRYPT_VERSION.tar.bz2
@@ -174,24 +178,52 @@ tar -C "$WORK" -xjf download/libksba-$LIBKSBA_VERSION.tar.bz2
     make install
 )
 
+tar -C "$WORK" -xf download/eudev-$EUDEV_VERSION.tar.gz
+(
+    mkdir -p "$WORK/eudev"
+    cd "$WORK/eudev"
+    ../eudev-$EUDEV_VERSION/configure \
+        CC="$GCC" \
+        --prefix="$WORK/deps" \
+        --enable-shared=no \
+        --enable-static=yes \
+	--disable-selinux \
+	--disable-kmod \
+	--disable-programs
+    make -kj$NJOBS
+    make install
+)
+
+tar -C "$WORK" -xf download/libusb-$LIBUSB_VERSION.tar.bz2
+(
+    mkdir -p "$WORK/libusb"
+    cd "$WORK/libusb"
+    ../libusb-$LIBUSB_VERSION/configure \
+        CC="$GCC" \
+        --prefix="$WORK/deps" \
+        --enable-shared=no \
+        --enable-static=yes
+    make -kj$NJOBS
+    make install
+)
 tar -C "$WORK" -xjf download/gnupg-$GNUPG_VERSION.tar.bz2
 (
     mkdir -p "$WORK/gnupg"
     cd "$WORK/gnupg"
     ../gnupg-$GNUPG_VERSION/configure \
         CC="$GCC" \
-        LDFLAGS="-static -s" \
-        --prefix="$PREFIX" \
+	LIBS="-lusb-1.0 -lpthread -ludev" \
+        LDFLAGS="-static" \
         --with-libgpg-error-prefix="$WORK/deps" \
         --with-libgcrypt-prefix="$WORK/deps" \
         --with-libassuan-prefix="$WORK/deps" \
         --with-ksba-prefix="$WORK/deps" \
         --with-npth-prefix="$WORK/deps" \
-        --with-agent-pgm="$PREFIX/bin/gpg-agent" \
-        --with-pinentry-pgm="$PREFIX/bin/pinentry" \
+	--with-agent-pgm="/bin/gpg-agent" \
+	--with-scdaemon-pgm="/libexec/scdaemon" \
         --disable-bzip2 \
-        --disable-card-support \
-        --disable-ccid-driver \
+        --enable-card-support \
+        --enable-ccid-driver \
         --disable-dirmngr \
         --disable-gnutls \
         --disable-gpg-blowfish \
@@ -206,13 +238,12 @@ tar -C "$WORK" -xjf download/gnupg-$GNUPG_VERSION.tar.bz2
         --disable-ntbtls \
         --disable-photo-viewers \
         --disable-regex \
-        --disable-scdaemon \
+        --enable-scdaemon \
         --disable-sqlite \
         --disable-wks-tools \
         --disable-zip
     make -kj$NJOBS
     make install DESTDIR="$DESTDIR"
-    rm "$DESTDIR$PREFIX/bin/gpgscm"
 )
 
 tar -C "$WORK" -xjf download/pinentry-$PINENTRY_VERSION.tar.bz2
@@ -221,8 +252,7 @@ tar -C "$WORK" -xjf download/pinentry-$PINENTRY_VERSION.tar.bz2
     cd "$WORK/pinentry"
     ../pinentry-$PINENTRY_VERSION/configure \
         CC="$GCC" \
-        LDFLAGS="-static -s" \
-        --prefix="$PREFIX" \
+	LDFLAGS="-static" \
         --with-libgpg-error-prefix="$WORK/deps" \
         --with-libassuan-prefix="$WORK/deps" \
         --disable-ncurses \
